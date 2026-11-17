@@ -1,0 +1,5 @@
+rdkit==2025.9.2
+numpy==2.0.2
+pytest
+matplotlib==3.9.4
+reportlab==4.0.9

@@ -1,0 +1,17 @@
+249455 SMILES -> 249455 fingerprints in 14.1s
+layout {'queries': 30, 'scattered_ms': 94.1840708333332, 'contiguous_ms': 21.238515366666395}
+t=0.30 rdkit_brute  24.76ms  rdkit_pruned  25.93ms  numpy_brute   5.64ms  numpy_pruned   5.65ms  scanned 100.0%  hits 368.2
+t=0.35 rdkit_brute  24.69ms  rdkit_pruned  25.77ms  numpy_brute   5.61ms  numpy_pruned   5.61ms  scanned  99.9%  hits 100.6
+t=0.40 rdkit_brute  24.68ms  rdkit_pruned  25.71ms  numpy_brute   5.60ms  numpy_pruned   5.60ms  scanned  99.8%  hits 34.8
+t=0.45 rdkit_brute  24.64ms  rdkit_pruned  25.58ms  numpy_brute   5.58ms  numpy_pruned   5.58ms  scanned  99.4%  hits 13.5
+t=0.50 rdkit_brute  24.66ms  rdkit_pruned  25.44ms  numpy_brute   5.59ms  numpy_pruned   5.54ms  scanned  98.7%  hits 5.6
+t=0.55 rdkit_brute  25.13ms  rdkit_pruned  25.46ms  numpy_brute   5.66ms  numpy_pruned   5.52ms  scanned  96.9%  hits 1.9
+t=0.60 rdkit_brute  24.89ms  rdkit_pruned  24.45ms  numpy_brute   5.60ms  numpy_pruned   5.29ms  scanned  93.9%  hits 0.7
+t=0.65 rdkit_brute  24.93ms  rdkit_pruned  23.12ms  numpy_brute   5.66ms  numpy_pruned   5.02ms  scanned  88.7%  hits 0.4
+t=0.70 rdkit_brute  24.75ms  rdkit_pruned  20.97ms  numpy_brute   5.59ms  numpy_pruned   4.56ms  scanned  81.2%  hits 0.1
+t=0.75 rdkit_brute  24.76ms  rdkit_pruned  18.35ms  numpy_brute   5.57ms  numpy_pruned   3.99ms  scanned  71.1%  hits 0.1
+t=0.80 rdkit_brute  24.76ms  rdkit_pruned  15.13ms  numpy_brute   5.56ms  numpy_pruned   3.30ms  scanned  58.7%  hits 0.0
+t=0.85 rdkit_brute  24.88ms  rdkit_pruned  11.49ms  numpy_brute   5.59ms  numpy_pruned   2.53ms  scanned  44.5%  hits 0.0
+t=0.90 rdkit_brute  24.90ms  rdkit_pruned   7.68ms  numpy_brute   5.62ms  numpy_pruned   1.72ms  scanned  29.9%  hits 0.0
+t=0.95 rdkit_brute  25.21ms  rdkit_pruned   3.90ms  numpy_brute   5.69ms  numpy_pruned   0.87ms  scanned  14.9%  hits 0.0
+mismatches: 0 / 4200  -> /Users/min/Downloads/Waterloo Work/projects/fingerprint-search-pruning/src/../results/benchmark.json

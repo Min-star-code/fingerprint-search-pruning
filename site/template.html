@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>When Pruning Doesn't Pay</title>
+<meta name="description" content="Exact chemical similarity search on 250k drug-like molecules: when a classic pruning bound helps, when it doesn't, and what does.">
+<style>
+/* Palette follows neoplasm.ai: cool near-black text, white ground, coral-to-lavender wordmark gradient, purple links. */
+:root{
+  --bg:#ffffff; --band:#f7f7f9; --ink:#17161c; --muted:#62616b; --faint:#8c8b95; --line:#e2e2e7;
+  --coral:#f2665c; --lav:#a879f2; --purple:#7917ef; --gray:#9a99a3;
+  --keep:#7917ef; --skip:#e2e2e7;
+  --grad:linear-gradient(135deg,#f87171,#ff8066,#c69eff);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#121117; --band:#18171e; --ink:#ecebf2; --muted:#a9a8b3; --faint:#7d7c87; --line:#2c2b34;
+    --coral:#ff7f73; --lav:#c3a2ff; --purple:#a066ff; --gray:#8e8d98;
+    --keep:#a066ff; --skip:#2c2b34;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#121117; --band:#18171e; --ink:#ecebf2; --muted:#a9a8b3; --faint:#7d7c87; --line:#2c2b34;
+  --coral:#ff7f73; --lav:#c3a2ff; --purple:#a066ff; --gray:#8e8d98;
+  --keep:#a066ff; --skip:#2c2b34;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);transition:background-color .4s ease,color .4s ease;
+  font:17px/1.65 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+.prose{max-width:680px;margin:0 auto}
+.prose p{margin:.75em 0}
+
+/* ---------- hero ---------- */
+header{min-height:86vh;display:flex;flex-direction:column;justify-content:center;text-align:center;padding:64px 0 40px}
+.kicker{font-size:.78rem;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1{font-size:2.9rem;line-height:1.08;font-weight:700;margin:.35em auto .4em;letter-spacing:-.025em;max-width:860px}
+.grad{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lede{font-size:1.15rem;color:var(--muted);max-width:620px;margin:0 auto}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);
+  border-radius:12px;overflow:hidden;margin:44px auto 0;max-width:820px;width:100%}
+.stat{background:var(--bg);padding:22px 14px;text-align:center;transition:background-color .4s ease}
+.stat b{display:block;font-size:2.4rem;line-height:1.05;font-weight:700;font-variant-numeric:tabular-nums}
+.stat > span{font-size:.86rem;color:var(--muted);display:block;margin-top:8px;line-height:1.35}
+.scrollcue{margin-top:48px;font-size:.8rem;color:var(--faint);letter-spacing:.08em;text-transform:uppercase}
+.scrollcue i{display:block;width:1px;height:36px;margin:10px auto 0;background:linear-gradient(var(--faint),transparent);
+  animation:cue 2.2s ease-in-out infinite}
+@keyframes cue{0%,100%{transform:scaleY(.4);transform-origin:top;opacity:.4}50%{transform:scaleY(1);opacity:1}}
+
+/* ---------- chapters ---------- */
+.chapter{padding:120px 0 40px}
+.chapter .num{font-size:.8rem;font-weight:700;letter-spacing:.1em;color:var(--purple);text-transform:uppercase}
+.chapter h2{font-size:1.9rem;line-height:1.18;font-weight:700;margin:.3em 0 .4em;letter-spacing:-.015em}
+.figure{background:var(--band);padding:56px 0 52px;margin-top:56px;transition:background-color .4s ease}
+.controls{display:flex;flex-wrap:wrap;gap:12px 28px;align-items:center;margin:0 0 18px;font-size:.92rem;color:var(--muted)}
+.controls label{display:flex;align-items:center;gap:9px;cursor:pointer;transition:opacity .25s ease}
+.controls label.off{opacity:.45}
+input[type=range]{width:220px;accent-color:var(--purple)}
+input[type=checkbox],input[type=radio]{accent-color:var(--purple)}
+.val{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);min-width:2.6em}
+.chartbox{position:relative;height:520px}
+.chartbox.small{height:200px}
+#hist{display:block;width:100%;height:100%;cursor:crosshair;touch-action:pan-y}
+.hint{font-size:.82rem;color:var(--faint);margin-top:10px;min-height:1.3em;transition:opacity .4s ease}
+.hint .dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--purple);margin-right:7px;vertical-align:1px;animation:pulse 1.6s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+.readout{display:flex;flex-wrap:wrap;gap:10px 36px;margin-top:20px;font-size:.92rem;color:var(--muted)}
+.readout b{display:block;color:var(--ink);font-size:1.6rem;line-height:1.2;font-variant-numeric:tabular-nums}
+.sw{display:inline-block;width:16px;height:3px;border-radius:2px}
+.sw.dash{background-image:repeating-linear-gradient(90deg,var(--bg) 0 0,var(--bg) 0)!important}
+.legendrow{gap:10px 22px}
+.legendrow label span.name{color:var(--ink)}
+blockquote.key{margin:28px 0 0;padding:0 0 0 16px;border-left:3px solid var(--purple);font-size:1.08rem;color:var(--ink)}
+.takeaways li{margin:.55em 0}
+
+/* ---------- details ---------- */
+.more{padding:120px 0 40px}
+.more h2{font-size:1.4rem;margin:0 0 14px}
+details{border-top:1px solid var(--line);padding:16px 0}
+details:last-of-type{border-bottom:1px solid var(--line)}
+summary{cursor:pointer;font-weight:700;font-size:1.02rem;list-style:none;display:flex;justify-content:space-between;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--muted);font-weight:400;font-size:1.3rem;transition:transform .3s ease}
+details[open] summary::after{transform:rotate(45deg)}
+details > div{overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:.88rem;font-variant-numeric:tabular-nums;margin-top:8px}
+th,td{text-align:right;padding:6px 8px;border-bottom:1px solid var(--line)}
+th:first-child,td:first-child{text-align:left}
+th{color:var(--muted);font-weight:600}
+.tablewrap{overflow-x:auto}
+.refs li{margin:.5em 0}.refs .why{color:var(--muted)}
+a{color:var(--purple)}
+footer{padding:80px 0 64px;font-size:.82rem;color:var(--faint);text-align:center}
+.themebtn{position:fixed;top:12px;right:12px;background:var(--bg);color:var(--muted);border:1px solid var(--line);
+  border-radius:6px;padding:4px 10px;font-size:.8rem;cursor:pointer;z-index:3}
+.progress{position:fixed;top:0;left:0;height:2px;width:100%;background:var(--grad);transform-origin:0 50%;transform:scaleX(0);z-index:4}
+
+/* ---------- scroll reveal ---------- */
+.reveal{opacity:0;transform:translate3d(0,28px,0);
+  transition:opacity .9s cubic-bezier(.2,.7,.2,1),transform .9s cubic-bezier(.2,.7,.2,1)}
+.reveal.in{opacity:1;transform:none}
+.reveal.d1{transition-delay:.08s}.reveal.d2{transition-delay:.16s}.reveal.d3{transition-delay:.24s}
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  .reveal{opacity:1;transform:none;transition:none}
+  .scrollcue i{animation:none}
+}
+
+@media (max-width:640px){
+  body{font-size:16px}
+  header{min-height:auto;padding:56px 0 24px}
+  h1{font-size:1.85rem}
+  .stat{padding:16px 6px}
+  .stat b{font-size:1.6rem}
+  .chapter{padding:80px 0 24px}
+  .chapter h2{font-size:1.4rem}
+  .figure{padding:36px 0;margin-top:36px}
+  .chartbox{height:360px}
+  .chartbox.small{height:170px}
+  input[type=range]{width:150px}
+  .readout b{font-size:1.3rem}
+  .more{padding:80px 0 24px}
+}
+</style>
+</head>
+<body>
+<div class="progress" id="progress"></div>
+<button class="themebtn" id="themebtn" type="button" aria-label="Toggle colour theme">Theme</button>
+
+<header class="wrap">
+  <div class="kicker reveal">Algorithm optimization · cheminformatics</div>
+  <h1 class="reveal d1">When pruning <span class="grad">doesn't pay</span>: faster exact similarity search on 250k molecules</h1>
+  <p class="lede reveal d2">A classic shortcut skips almost nothing on drug-like molecules. Changing how each comparison is computed does. Every method returns identical results.</p>
+  <div class="stats reveal d3">
+    <div class="stat"><b data-count id="s-prune">–</b><span>pruning bound, typical threshold</span></div>
+    <div class="stat"><b data-count id="s-numpy" class="grad">–</b><span>packed bits, every threshold</span></div>
+    <div class="stat"><b data-count id="s-exact">–</b><span>mismatches in <span id="s-checks"></span> checks</span></div>
+  </div>
+  <div class="scrollcue reveal d3">scroll<i></i></div>
+</header>
+
+<!-- ===================== 0 · problem ===================== -->
+<section class="chapter wrap">
+  <div class="prose">
+    <div class="num reveal">The problem</div>
+    <h2 class="reveal">Which molecules in my library look like this one?</h2>
+    <p class="reveal">Each molecule is turned into a fingerprint: a 2,048-bit pattern recording the small structural pieces it contains. Two molecules are compared with the <b>Tanimoto score</b>, shared bits divided by total distinct bits, from 0 (nothing in common) to 1 (identical fingerprints).</p>
+    <p class="reveal">An <em>exact</em> search compares the query with every molecule in the library, so cost grows with library size. Real libraries hold millions to billions of molecules, which is why even small per-comparison savings matter. This project tests two published ideas for making that search faster without changing a single result.</p>
+  </div>
+</section>
+
+<!-- ===================== 1 · pruning ===================== -->
+<section class="chapter wrap" style="padding-bottom:0">
+  <div class="prose">
+    <div class="num reveal">Idea 1 · skip what can't match</div>
+    <h2 class="reveal">The bound can only skip molecules far from the query's size</h2>
+    <p class="reveal">Swamidass &amp; Baldi (2007) showed that a fingerprint with <i>a</i> bits set can never score higher than min(<i>a</i>,<i>b</i>)/max(<i>a</i>,<i>b</i>) against one with <i>b</i> bits set. So for a threshold <i>t</i>, any molecule with fewer than <i>t·a</i> or more than <i>a/t</i> bits is skipped without computing anything.</p>
+    <p class="reveal">The catch: drug-like molecules are all roughly the same size, so their bit counts sit in a narrow band around <span id="medbits"></span> bits. The window the bound must keep swallows almost all of that band until the threshold is very high. Move your cursor across the chart below: wherever it points becomes the query molecule's size.</p>
+  </div>
+</section>
+<section class="figure">
+  <div class="wrap reveal">
+    <div class="controls">
+      <label>threshold <i>t</i> <input type="range" id="t1" min="0.30" max="0.95" step="0.05"><span class="val" id="t1v"></span></label>
+      <label>query bits <i>a</i> <input type="range" id="a1" min="10" max="90" step="1"><span class="val" id="a1v"></span></label>
+    </div>
+    <div class="chartbox" id="histbox"><canvas id="hist" role="img" aria-label="Histogram of fingerprint bit counts; the highlighted window still needs scoring. Move the pointer over it to choose the query size."></canvas></div>
+    <div class="hint" id="hint"></div>
+    <div class="readout">
+      <span>window kept<b id="r-win"></b></span>
+      <span>still to score, this query<b id="r-keep"></b></span>
+      <span>still to score, all <span class="nq"></span> real queries<b id="r-real"></b></span>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 2 · packed bits ===================== -->
+<section class="chapter wrap" style="padding-bottom:0">
+  <div class="prose">
+    <div class="num reveal">Idea 2 · make each comparison cheaper</div>
+    <h2 class="reveal">Packed bits are faster at every threshold; pruning only helps near 1.0</h2>
+    <p class="reveal">If skipping doesn't work, make every comparison faster. Each fingerprint is packed into 32 × 64-bit words in one contiguous <span id="lay-mb"></span> array, and the whole library is scored in one vectorised pass: bitwise AND, hardware popcount, divide. This follows Dalke (2019), who argued that modern exact search is limited mainly by how fast memory can be streamed, not by arithmetic.</p>
+    <p class="reveal">The chart compares four methods, each timed as the mean over <span class="nq"></span> held-out query molecules (best of 3 runs, one CPU thread). Toggle the lines or switch to speed-up.</p>
+  </div>
+</section>
+<section class="figure">
+  <div class="wrap reveal">
+    <div class="controls legendrow" id="legend"></div>
+    <div class="controls">
+      <label><input type="radio" name="metric" value="ms" checked> ms per query</label>
+      <label><input type="radio" name="metric" value="speedup"> × faster than baseline</label>
+      <label><input type="checkbox" id="logy"> log scale</label>
+    </div>
+    <div class="chartbox"><canvas id="perf" role="img" aria-label="Time per query for four methods across thresholds"></canvas></div>
+    <div class="readout" id="perfread"></div>
+  </div>
+</section>
+
+<!-- ===================== 3 · layout ===================== -->
+<section class="chapter wrap" style="padding-bottom:0">
+  <div class="prose">
+    <div class="num reveal">Side finding</div>
+    <h2 class="reveal">Memory layout alone cost <span id="lay-x"></span></h2>
+    <p class="reveal">RDKit keeps each fingerprint as its own object in memory. When the list of fingerprints was in a different order from the one they were created in (after shuffling or sorting), the <em>same</em> RDKit call on the <em>same</em> data took <b id="lay-s"></b> per query instead of <b id="lay-c"></b>. An early benchmark run hit exactly this and made the baseline look slower than it is. Every RDKit number on this page now uses fresh copies laid out in scan order, so the baseline is shown at its best.</p>
+  </div>
+</section>
+<section class="figure">
+  <div class="wrap reveal">
+    <div class="chartbox small"><canvas id="lay" role="img" aria-label="RDKit time per query with scattered versus contiguous memory layout"></canvas></div>
+  </div>
+</section>
+
+<!-- ===================== takeaways ===================== -->
+<section class="chapter wrap">
+  <div class="prose">
+    <div class="num reveal">What this means</div>
+    <h2 class="reveal">Check the optimization against the shape of your data</h2>
+    <ul class="takeaways reveal" id="takeaways"></ul>
+    <blockquote class="key reveal">A one-line histogram of bit counts predicted the pruning result before any timing was run.</blockquote>
+  </div>
+</section>
+
+<div class="wrap more">
+  <div class="prose">
+    <h2 class="reveal">Details</h2>
+    <details class="reveal">
+      <summary>All numbers</summary>
+      <div><div class="tablewrap"><table id="tbl"></table></div></div>
+    </details>
+    <details class="reveal">
+      <summary>Reading behind it</summary>
+      <div><ol class="refs">
+        <li><b>Rogers &amp; Hahn (2010).</b> Extended-connectivity fingerprints. <i>J. Chem. Inf. Model.</i> 50(5), 742–754. <span class="why">The fingerprints used (Morgan, radius 2).</span></li>
+        <li><b>Bajusz, Rácz &amp; Héberger (2015).</b> Why is Tanimoto index an appropriate choice for fingerprint-based similarity calculations? <i>J. Cheminform.</i> 7, 20. <span class="why">Supports Tanimoto as the default metric.</span></li>
+        <li><b>Swamidass &amp; Baldi (2007).</b> Bounds and algorithms for fast exact searches of chemical fingerprints in linear and sublinear time. <i>J. Chem. Inf. Model.</i> 47(2), 302–317. <span class="why">Source of the bound in idea 1.</span></li>
+        <li><b>Dalke (2019).</b> The chemfp project. <i>J. Cheminform.</i> 11, 76. <span class="why">Argues exact search is memory-bandwidth bound; motivates idea 2 and explains the side finding.</span></li>
+        <li><b>Gómez-Bombarelli et al. (2018).</b> Automatic chemical design using a data-driven continuous representation of molecules. <i>ACS Cent. Sci.</i> 4(2), 268–276. <span class="why">Source of the 250k ZINC subset.</span></li>
+      </ol></div>
+    </details>
+    <details class="reveal">
+      <summary>Method &amp; limits</summary>
+      <div><ul>
+        <li><b>Data:</b> <span id="m-data"></span></li>
+        <li><b>Correctness:</b> all methods return identical hit lists and identical floating-point scores to the RDKit baseline for every query and threshold; 30 unit tests also check them against a plain Python loop.</li>
+        <li><b>Machine:</b> <span id="m-env"></span>.</li>
+        <li><b>Not tested yet:</b> other fingerprint types (e.g. MACCS), libraries with a wider spread of molecule sizes, multi-threading, batching many queries per pass over memory, and libraries larger than memory.</li>
+      </ul></div>
+    </details>
+    <details class="reveal">
+      <summary>How it was built</summary>
+      <div>
+        <p>Prototyped in about a day with a coding agent (Claude Code). I chose the question and the comparisons; the agent drafted the code; nothing was reported until it matched a deliberately slow reference implementation. Two early runs gave misleading baselines (Python dictionary overhead, then scattered memory layout); both were traced and fixed, and the second became the side finding.</p>
+        <p>Code, tests and raw results: <a href="https://github.com/Min-star-code/fingerprint-search-pruning">github.com/Min-star-code/fingerprint-search-pruning</a> (includes the PDF report).</p>
+      </div>
+    </details>
+  </div>
+</div>
+
+<footer class="wrap reveal">Mincheng Li · University of Waterloo, Honours Mathematics · November 2026<br>Independent project, not affiliated with or endorsed by Neoplasm AI.</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const DATA = /*DATA*/null;
+(function(){
+  const root = document.documentElement;
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const coarse = window.matchMedia('(pointer: coarse)').matches;
+  try { const s = localStorage.getItem('theme'); if (s) root.dataset.theme = s; } catch(e){}
+  const css = n => getComputedStyle(root).getPropertyValue(n).trim();
+  const isDark = () => css('--bg') === '#121117';
+
+  const R = DATA.rows, H = DATA.popcount.histogram, N = DATA.dataset.database_size, L = DATA.layout;
+  const TYP = 0.6;
+  const rowAt = t => R.find(r => Math.abs(r.threshold - t) < 1e-9);
+  const fmtX = x => (x >= 10 ? x.toFixed(0) : x.toFixed(1)) + '×';
+  const pct = x => (100 * x).toFixed(x < 0.1 && x > 0 ? 1 : 0) + '%';
+  const qs = DATA.popcount.query_counts.slice().sort((a,b)=>a-b);
+  const qmed = qs[Math.floor(qs.length/2)];
+  const $ = id => document.getElementById(id);
+  const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+
+  // ---- smooth number tween ------------------------------------------------
+  function tween(el, to, fmt, ms = 500){
+    if (!el) return;
+    const from = el._v ?? to;
+    el._v = to;
+    if (reduce || from === to){ el.textContent = fmt(to); return; }
+    const t0 = performance.now();
+    cancelAnimationFrame(el._raf);
+    const step = now => {
+      const k = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - k, 3);
+      el.textContent = fmt(from + (to - from) * e);
+      if (k < 1) el._raf = requestAnimationFrame(step);
+    };
+    el._raf = requestAnimationFrame(step);
+  }
+
+  // ---- static text --------------------------------------------------------
+  const rt = rowAt(TYP);
+  set('s-checks', DATA.correctness.checks.toLocaleString());
+  document.querySelectorAll('.nq').forEach(e => e.textContent = DATA.dataset.queries);
+  set('medbits', Math.round(DATA.popcount.db_median));
+  set('lay-x', fmtX(L.scattered_ms / L.contiguous_ms));
+  set('lay-s', L.scattered_ms.toFixed(0) + ' ms');
+  set('lay-c', L.contiguous_ms.toFixed(0) + ' ms');
+  set('lay-mb', Math.round(DATA.timing.packed_db_megabytes) + ' MB');
+  const d = DATA.dataset, env = DATA.environment;
+  set('m-data', `${d.fingerprints.toLocaleString()} molecules from the ZINC drug-like subset; ${d.heldout_pool.toLocaleString()} held out, ${d.queries} used as queries against the remaining ${d.database_size.toLocaleString()}. Morgan fingerprints, radius 2, 2,048 bits.`);
+  set('m-env', `${env.cpu}, Python ${env.python}, RDKit ${env.rdkit}, NumPy ${env.numpy}`);
+  const heroStats = [[$('s-prune'), rt.rdkit_pruned_speedup, fmtX], [$('s-numpy'), rt.numpy_brute_speedup, fmtX],
+                     [$('s-exact'), DATA.correctness.mismatched_result_sets, v => Math.round(v)]];
+  heroStats.forEach(([el, v, f]) => { el._v = 0; el.textContent = f(0); });
+
+  // =========================================================================
+  // Figure 1: hand-drawn canvas histogram with per-bar springs.
+  //   - each bar has three springs: height (intro), keep (0 = skipped, 1 = scored), lift (pointer wave)
+  //   - springs are sub-stepped 4x per frame so motion is smooth at any frame rate
+  //   - the pointer is the query: its x position sets the query bit count
+  //   - after 4 s idle (or on touch screens) the threshold sweeps by itself
+  // =========================================================================
+  const t1 = $('t1'), a1 = $('a1'), canvas = $('hist'), box = $('histbox'), hint = $('hint');
+  t1.value = TYP; a1.value = qmed;
+  const NB = H.length;
+  const win = (a, t) => [Math.ceil(t*a - 1e-9), Math.floor(a/t + 1e-9)];
+  const K = 70, C = 12.5;                        // spring stiffness / damping
+  const bars = H.map((c, i) => ({h:0, hv:0, k:0, kv:0, l:0, lv:0, kT:0, lT:0, delay:i * 0.012}));
+  let started = false, tStart = 0, pointerX = null, lastInput = -1e9, demo = false, rafId = 0, last = 0;
+  let thr = TYP;                                  // threshold actually drawn (continuous during demo)
+  const M_ = {l:72, r:14, t:14, b:46};
+  let W = 0, Hh = 0, dpr = 1;
+  const yMax = Math.ceil(Math.max(...H) / 2000) * 2000;
+
+  function resize(){
+    const r = box.getBoundingClientRect();
+    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = r.width; Hh = r.height;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(Hh * dpr);
+    kick();
+  }
+  new ResizeObserver(resize).observe(box);
+
+  const hex = h => { h = h.replace('#',''); return [0,2,4].map(i => parseInt(h.slice(i,i+2),16)); };
+  const mix = (a, b, k) => `rgb(${a.map((v,i)=>Math.round(v + (b[i]-v)*k)).join(',')})`;
+
+  function targets(){
+    const a = +a1.value, [lo, hi] = win(a, thr);
+    bars.forEach((b, i) => {
+      b.kT = (i >= lo && i <= hi) ? 1 : 0;
+      let inf = 0;
+      if (pointerX !== null){
+        const bx = barX(i) + barW() / 2, s = Math.max(28, W * 0.045);
+        inf = Math.exp(-((bx - pointerX) ** 2) / (s * s));
+      }
+      b.lT = inf;
+    });
+    return [lo, hi];
+  }
+  const plotW = () => W - M_.l - M_.r, plotH = () => Hh - M_.t - M_.b;
+  const barW = () => plotW() / NB;
+  const barX = i => M_.l + i * barW();
+
+  function readouts(){
+    const a = +a1.value, [lo, hi] = win(a, thr);
+    let kept = 0; H.forEach((c,b) => { if (b >= lo && b <= hi) kept += c; });
+    set('t1v', thr.toFixed(2)); set('a1v', a);
+    set('r-win', `${lo}–${hi} bits`);
+    tween($('r-keep'), kept / N, pct);
+    const row = rowAt(Math.round(thr * 20) / 20);
+    tween($('r-real'), row ? row.rdkit_pruned_scanned : 0, pct);
+  }
+
+  function step(dt){
+    const now = performance.now() / 1000 - tStart;
+    let moving = false;
+    const h = dt / 4;
+    for (const b of bars){
+      const hT = started && now > b.delay ? 1 : 0;
+      for (let s = 0; s < 4; s++){
+        b.hv += ((hT - b.h) * K - b.hv * C) * h;           b.h += b.hv * h;
+        b.kv += ((b.kT - b.k) * 120 - b.kv * 17) * h;      b.k += b.kv * h;
+        b.lv += ((b.lT - b.l) * K - b.lv * C) * h;         b.l += b.lv * h;
+      }
+      if (Math.abs(hT - b.h) + Math.abs(b.hv) + Math.abs(b.kT - b.k) + Math.abs(b.kv)
+          + Math.abs(b.lT - b.l) + Math.abs(b.lv) > 1e-3) moving = true;
+    }
+    return moving;
+  }
+
+  function draw(lo, hi){
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, Hh);
+    const muted = css('--muted'), line = css('--line'), ink = css('--ink');
+    const keep = hex(css('--keep')), skip = hex(css('--skip'));
+    const fontF = getComputedStyle(document.body).fontFamily;
+    ctx.font = `12px ${fontF}`;
+    // grid + y labels
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let v = 0; v <= yMax; v += 2000){
+      const y = M_.t + plotH() * (1 - v / yMax);
+      ctx.strokeStyle = line; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(M_.l, Math.round(y) + .5); ctx.lineTo(W - M_.r, Math.round(y) + .5); ctx.stroke();
+      ctx.fillStyle = muted; ctx.fillText(v.toLocaleString(), M_.l - 8, y);
+    }
+    // bars
+    const bw = barW(), gap = bw > 6 ? 1.2 : .6;
+    bars.forEach((b, i) => {
+      const fullH = plotH() * H[i] / yMax;
+      const hgt = fullH * Math.max(0, b.h);
+      if (hgt < .3) return;
+      // pointer wave: bars near the cursor grow a little taller (stay on the baseline)
+      const lift = 10 * Math.max(0, b.l) * (0.35 + 0.65 * Math.max(0, b.k));
+      ctx.fillStyle = mix(skip, keep, Math.min(1, Math.max(0, b.k)));
+      ctx.fillRect(barX(i) + gap / 2, M_.t + plotH() - hgt - lift, bw - gap, hgt + lift);
+    });
+    // window edges
+    ctx.setLineDash([4, 4]); ctx.strokeStyle = css('--purple'); ctx.lineWidth = 1.2;
+    [lo, hi + 1].forEach(v => {
+      if (v < 0 || v > NB) return;
+      const x = Math.round(barX(v)) + .5;
+      ctx.beginPath(); ctx.moveTo(x, M_.t); ctx.lineTo(x, M_.t + plotH()); ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    // query marker
+    const a = +a1.value, qx = barX(a) + bw / 2;
+    ctx.strokeStyle = ink; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(qx, M_.t + 18); ctx.lineTo(qx, M_.t + plotH()); ctx.stroke();
+    ctx.fillStyle = ink; ctx.textAlign = qx > W - 120 ? 'right' : 'left'; ctx.textBaseline = 'top';
+    ctx.font = `600 12px ${fontF}`;
+    ctx.fillText(`query · ${a} bits`, qx + (ctx.textAlign === 'left' ? 6 : -6), M_.t + 2);
+    ctx.font = `12px ${fontF}`;
+    // x axis
+    ctx.fillStyle = muted; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let v = 0; v < NB; v += 8) ctx.fillText(String(v), barX(v) + bw / 2, M_.t + plotH() + 8);
+    ctx.fillText('bits set in fingerprint', M_.l + plotW() / 2, M_.t + plotH() + 26);
+    ctx.save(); ctx.translate(14, M_.t + plotH() / 2); ctx.rotate(-Math.PI / 2);
+    ctx.textBaseline = 'middle'; ctx.fillText('molecules', 0, 0); ctx.restore();
+  }
+
+  let visible = false;
+  function frame(ts){
+    rafId = 0;
+    const dt = Math.min(0.05, last ? (ts - last) / 1000 : 0.016);
+    last = ts;
+    // idle / touch demo: sweep the threshold
+    const idle = performance.now() - lastInput > 4000;
+    demo = started && !reduce && visible && (coarse || idle) && pointerX === null;
+    if (demo){
+      const u = (Math.sin((ts / 1000) * 0.45) + 1) / 2;
+      const nt = Math.round((0.30 + 0.65 * u) * 100) / 100;
+      if (nt !== thr){ thr = nt; t1.value = Math.round(thr * 20) / 20; readouts(); }
+      hint.innerHTML = '<span class="dot"></span>Auto demo: the threshold is sweeping. ' + (coarse ? 'Drag the sliders to take over.' : 'Move your cursor over the chart to take over.');
+    } else if (started) {
+      hint.textContent = coarse ? '' : 'Your cursor is the query molecule. The dashed lines mark the bit-count window that still has to be scored.';
+    }
+    const [lo, hi] = targets();
+    const moving = step(reduce ? 1 : dt);
+    draw(lo, hi);
+    if (moving || demo) kick();
+  }
+  function kick(){ if (!rafId && visible) rafId = requestAnimationFrame(frame); else if (!visible && W) { const [lo,hi]=targets(); draw(lo,hi);} }
+
+  // Track the pointer at window level so leaving the chart is always noticed.
+  addEventListener('pointermove', e => {
+    if (e.pointerType === 'touch') return;
+    const r = canvas.getBoundingClientRect();
+    const inside = e.clientX >= r.left + M_.l && e.clientX <= r.right - M_.r && e.clientY >= r.top && e.clientY <= r.bottom;
+    if (!inside){ if (pointerX !== null){ pointerX = null; lastInput = performance.now(); kick(); } return; }
+    pointerX = e.clientX - r.left;
+    const bin = Math.round((pointerX - M_.l) / barW() - .5);
+    const a = Math.max(+a1.min, Math.min(+a1.max, bin));
+    if (a !== +a1.value){ a1.value = a; }
+    if (thr !== +t1.value){ thr = +t1.value; }
+    lastInput = performance.now();
+    readouts(); kick();
+  });
+  document.addEventListener('pointerleave', () => { pointerX = null; kick(); });
+  addEventListener('blur', () => { pointerX = null; kick(); });
+  t1.addEventListener('input', () => { thr = +t1.value; lastInput = performance.now(); readouts(); kick(); });
+  a1.addEventListener('input', () => { lastInput = performance.now(); readouts(); kick(); });
+  readouts();
+  // The draw loop sleeps once every spring settles; wake it so the idle demo can start.
+  setInterval(() => { if (visible && !rafId && !reduce) kick(); }, 1000);
+
+  new IntersectionObserver(es => es.forEach(en => {
+    visible = en.isIntersecting;
+    if (visible && !started){ started = true; tStart = performance.now() / 1000; lastInput = performance.now(); }
+    if (visible){ last = 0; kick(); }
+  }), {threshold:0.15}).observe(box);
+  if (reduce){ started = true; bars.forEach(b => { b.h = 1; }); }
+
+  // =========================================================================
+  // Figures 2 and 3: Chart.js, created on load (not on scroll) so scrolling
+  // never pays for chart construction. Their intro animation replays when
+  // they first come into view.
+  // =========================================================================
+  Chart.defaults.font = {family:getComputedStyle(document.body).fontFamily, size:13};
+  Chart.defaults.animation = reduce ? false : {duration:700, easing:'easeOutQuart'};
+  const axis = (title, extra={}) => Object.assign({
+    title:{display:true, text:title, color:css('--muted')},
+    ticks:{color:css('--muted')}, grid:{color:css('--line')}, border:{color:css('--line')}}, extra);
+
+  const M = [
+    {k:'rdkit_brute',  name:'baseline (RDKit)',      c:'--gray',   dash:[]},
+    {k:'rdkit_pruned', name:'pruning',               c:'--coral',  dash:[6,4]},
+    {k:'numpy_brute',  name:'packed bits',           c:'--lav',    dash:[]},
+    {k:'numpy_pruned', name:'packed bits + pruning', c:'--purple', dash:[6,4]},
+  ];
+  let perf, lay;
+  const lg = $('legend');
+  M.forEach((m, i) => {
+    const l = document.createElement('label');
+    const sw = m.dash.length
+      ? `<span class="sw" style="background:repeating-linear-gradient(90deg,var(${m.c}) 0 5px,transparent 5px 8px)"></span>`
+      : `<span class="sw" style="background:var(${m.c})"></span>`;
+    l.innerHTML = `<input type="checkbox" checked>${sw}<span class="name">${m.name}</span>`;
+    l.querySelector('input').onchange = e => {
+      l.classList.toggle('off', !e.target.checked);
+      perf.setDatasetVisibility(i, e.target.checked); perf.update();
+    };
+    lg.appendChild(l);
+  });
+  const logy = $('logy');
+  const metric = () => document.querySelector('input[name=metric]:checked').value;
+  const perfData = () => { const suf = metric() === 'ms' ? '_ms' : '_speedup'; return M.map(m => R.map(r => r[m.k + suf])); };
+  function updatePerf(){
+    const data = perfData();
+    perf.data.datasets.forEach((ds, i) => { ds.data = data[i]; });
+    const y = perf.options.scales.y;
+    y.type = logy.checked ? 'logarithmic' : 'linear';
+    y.beginAtZero = !logy.checked;
+    y.title.text = metric() === 'ms' ? 'ms per query' : '× faster than baseline';
+    perf.update();
+  }
+  logy.onchange = updatePerf;
+  document.querySelectorAll('input[name=metric]').forEach(r => r.onchange = updatePerf);
+  (function(){
+    const b = rowAt(TYP), hiR = R[R.length - 1];
+    $('perfread').innerHTML =
+      `<span>at t = ${TYP.toFixed(2)}, baseline<b>${b.rdkit_brute_ms.toFixed(1)} ms</b></span>` +
+      `<span>packed bits<b>${b.numpy_brute_ms.toFixed(1)} ms</b></span>` +
+      `<span>at t = ${hiR.threshold.toFixed(2)}, packed + pruning<b>${fmtX(hiR.numpy_pruned_speedup)} faster</b></span>`;
+  })();
+
+  const data0 = perfData();
+  perf = new Chart($('perf'), {
+    type:'line',
+    data:{labels:R.map(r=>r.threshold.toFixed(2)),
+      datasets:M.map((m, i) => ({label:m.name, data:data0[i], borderColor:css(m.c), backgroundColor:css(m.c),
+        borderDash:m.dash, borderWidth:3, pointRadius:3, pointHoverRadius:6, tension:.25}))},
+    options:{responsive:true, maintainAspectRatio:false, animation:false, interaction:{mode:'index',intersect:false},
+      plugins:{legend:{display:false}, tooltip:{callbacks:{title:i=>`threshold ${i[0].label}`,
+        label:i=> metric()==='ms' ? `${i.dataset.label}: ${i.raw.toFixed(2)} ms` : `${i.dataset.label}: ${fmtX(i.raw)}`}}},
+      scales:{x:axis('similarity threshold',{grid:{display:false}}), y:axis('ms per query',{type:'linear', beginAtZero:true})}}
+  });
+  lay = new Chart($('lay'), {
+    type:'bar',
+    data:{labels:['scattered in memory','contiguous copies'],
+      datasets:[{data:[L.scattered_ms, L.contiguous_ms], backgroundColor:[css('--coral'), css('--purple')], borderWidth:0, barThickness:36, borderRadius:3}]},
+    options:{indexAxis:'y', responsive:true, maintainAspectRatio:false, animation:false,
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:i=>`${i.raw.toFixed(1)} ms per query`}}},
+      scales:{x:axis('RDKit ms per query',{beginAtZero:true}), y:{ticks:{color:css('--ink')}, grid:{display:false}, border:{color:css('--line')}}}}
+  });
+  // Turn animations on and replay the intro the first time each chart is seen.
+  function playIntro(ch, opts){
+    if (reduce){ return; }
+    ch.options.animation = {duration:900, easing:'easeOutCubic'};
+    Object.assign(ch.options, opts);
+    ch.reset(); ch.update();
+  }
+  const introPerf = () => playIntro(perf, {animations:{y:{duration:900, easing:'easeOutCubic',
+      from:ctx => ctx.chart.scales.y.getPixelForValue(0), delay:ctx => ctx.type === 'data' && ctx.mode === 'default' ? ctx.dataIndex * 35 : 0}},
+    transitions:{show:{animations:{y:{from:0}}}, hide:{animations:{y:{to:0}}}}});
+  const introLay = () => playIntro(lay, {animations:{x:{duration:1100, easing:'easeOutCubic',
+      from:ctx => ctx.chart.scales.x.getPixelForValue(0), delay:ctx => ctx.type === 'data' && ctx.mode === 'default' ? ctx.dataIndex * 220 : 0}}});
+
+  // ---- table + takeaways --------------------------------------------------
+  $('tbl').innerHTML =
+    '<thead><tr><th>t</th><th>baseline</th><th>pruning</th><th>packed</th><th>packed+pruning</th><th>scored</th><th>hits</th></tr></thead><tbody>' +
+    R.map(r => `<tr><td>${r.threshold.toFixed(2)}</td><td>${r.rdkit_brute_ms.toFixed(1)}</td><td>${r.rdkit_pruned_ms.toFixed(1)}</td>` +
+      `<td>${r.numpy_brute_ms.toFixed(1)}</td><td>${r.numpy_pruned_ms.toFixed(1)}</td><td>${pct(r.rdkit_pruned_scanned)}</td><td>${r.mean_hits.toFixed(1)}</td></tr>`).join('') +
+    '</tbody>';
+  const first = R.find(r => r.rdkit_pruned_speedup >= 1.5), lastR = R[R.length-1];
+  $('takeaways').innerHTML = [
+    `<b>The pruning bound is exact and cheap, but only pays from t ≈ ${first ? first.threshold.toFixed(2) : '–'}</b>, where fewer than ${first ? Math.max(first.mean_hits, 0.1).toFixed(1) : '–'} library molecules per query pass the threshold on average. On a library of similar-sized molecules, most searches never get there.`,
+    `<b>Changing the representation is the bigger lever.</b> Packed 64-bit words with hardware popcount are ${fmtX(rt.numpy_brute_speedup)} faster than the baseline at every threshold, with identical results.`,
+    `<b>The two ideas stack.</b> For near-duplicate search (t = ${lastR.threshold.toFixed(2)}) the combined method is ${fmtX(lastR.numpy_pruned_speedup)} faster than baseline.`,
+    `<b>Memory layout is a hidden variable.</b> The same RDKit call ran ${fmtX(L.scattered_ms / L.contiguous_ms)} slower with scattered fingerprints, consistent with Dalke's (2019) view that search speed is bound by memory, not arithmetic.`,
+  ].map(x=>`<li>${x}</li>`).join('');
+
+  // ---- scroll: reveal + chart intros + progress bar ------------------------
+  const intros = new Map([[$('perf').closest('.reveal'), introPerf], [$('lay').closest('.reveal'), introLay]]);
+  const io = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      if (!en.isIntersecting) return;
+      const el = en.target;
+      el.classList.add('in');
+      const f = intros.get(el); if (f){ intros.delete(el); f(); }
+      io.unobserve(el);
+    });
+  }, {threshold:0.12, rootMargin:'0px 0px -6% 0px'});
+  document.querySelectorAll('.reveal').forEach(el => io.observe(el));
+  setTimeout(() => {
+    document.querySelectorAll('header .reveal').forEach(el => { el.classList.add('in'); io.unobserve(el); });
+    heroStats.forEach(([e, v, f]) => tween(e, v, f, 1200));
+  }, 60);
+
+  const bar = $('progress');
+  let ticking = false;
+  addEventListener('scroll', () => {
+    if (ticking) return; ticking = true;
+    requestAnimationFrame(() => {
+      const h = document.documentElement.scrollHeight - innerHeight;
+      bar.style.transform = `scaleX(${h > 0 ? scrollY / h : 0})`;
+      ticking = false;
+    });
+  }, {passive:true});
+
+  // ---- theme --------------------------------------------------------------
+  function recolor(){
+    [perf, lay].forEach(ch => {
+      Object.entries(ch.options.scales).forEach(([id, s]) => {
+        if (s.title) s.title.color = css('--muted');
+        if (s.ticks) s.ticks.color = (ch === lay && id === 'y') ? css('--ink') : css('--muted');
+        if (s.grid) s.grid.color = css('--line');
+        if (s.border) s.border.color = css('--line');
+      });
+    });
+    perf.data.datasets.forEach((ds, i) => { ds.borderColor = ds.backgroundColor = css(M[i].c); });
+    lay.data.datasets[0].backgroundColor = [css('--coral'), css('--purple')];
+    perf.update(); lay.update();
+    const [lo, hi] = targets(); draw(lo, hi);
+  }
+  $('themebtn').onclick = () => {
+    root.dataset.theme = isDark() ? 'light' : 'dark';
+    try { localStorage.setItem('theme', root.dataset.theme); } catch(e){}
+    recolor();
+  };
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', recolor);
+})();
+</script>
+</body>
+</html>
