@@ -5,6 +5,8 @@ Benchmark of four ways to run **exact Tanimoto similarity search** over 248,455 
 **Interactive version:** https://min-star-code.github.io/fingerprint-search-pruning/
 **Written report (PDF):** [report/Fingerprint_Search_Report.pdf](report/Fingerprint_Search_Report.pdf)
 
+![Time per query by similarity threshold for the four methods: packed bits stay near 5.6 ms at every threshold; pruning only helps above about 0.6; the two combined reach 0.87 ms at 0.95](report/fig/fig2_perf.png)
+
 ## Findings
 
 Mean time per query, 100 held-out queries, best of 3 runs, one CPU thread (Apple M5):
